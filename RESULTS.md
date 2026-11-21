@@ -118,3 +118,21 @@ About 76 tokens per tool on this template (the 3090 test reported ~87 per tool o
 | custom | q8_0 / q8_0 | refused | refused |
 | custom | q4_0 / q4_0 | refused | refused |
 Refusal message: "quantized V cache requires flash_attn to be enabled". K-only quantization loads without FA but is 3–6× slower on this device. On Xclipse the practical choice is FA (slow prefill at depth) or f16 KV (more memory).
+
+## 11. Tool-call accuracy with 10 vs 40 tools loaded (tool_pick_test.sh)
+20 prompts, each needing one specific tool with specific arguments (file, git, web). Run 1 loads only the 10 needed tools; run 2 adds 30 distractors (40 total), including near-misses like delete_file, git_branch, download_file, http_request. Scored per prompt: native tool call / right tool / right arguments. llama-server --jinja, temperature 0, FA off, cores 6–8, -t 3, -ngl 40, 1 run.
+
+| model | descriptions | tools | native tool calls | right tool | right tool + args | median s/request |
+|---|---|---|---|---|---|---|
+| Qwen2.5-Coder-0.5B Q8_0 | original | 10 | 0/20 | 10/20 | 10/20 (50%) | 0.5 |
+| Qwen2.5-Coder-0.5B Q8_0 | original | 40 | 0/20 | 8/20 | 8/20 (40%) | 0.7 |
+| Qwen2.5-0.5B-Instruct Q8_0 | original | 10 | 20/20 | 15/20 | 14/20 (70%) | 0.7 |
+| Qwen2.5-0.5B-Instruct Q8_0 | original | 40 | 20/20 | 13/20 | 12/20 (60%) | 1.0 |
+| Qwen2.5-0.5B-Instruct Q8_0 | sharpened (SHARP=1) | 10 | 20/20 | 15/20 | 15/20 (75%) | 0.6 |
+| Qwen2.5-0.5B-Instruct Q8_0 | sharpened (SHARP=1) | 40 | 20/20 | 13/20 | 12/20 (60%) | 0.7 |
+
+Notes:
+- The Coder model never emits native tool calls; it writes the call as JSON in plain text (counted via a fallback parser for the "right tool" columns). A real agent without that parser would get 0 calls.
+- Typical misses: fetch_url → read_file / web_search (0/2 in every run, even with "never use for URLs" in read_file's description), git_log → git_commit, and with 40 tools picking distractors (take_note, create_calendar_event, http_request, get_weather).
+- Sharpening the descriptions moved 10 tools from 14 to 15/20 and left 40 tools at 12/20: at 0.5B the model size is the limit, not the wording.
+- Run: `M=~/models/qwen2.5-0.5b-instruct-q8_0.gguf bash scripts/tool_pick_test.sh` (add `SHARP=1` for sharpened descriptions).

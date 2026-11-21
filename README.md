@@ -6,4 +6,4 @@ llama.cpp builds, flags and settings measured on a Samsung Galaxy S26 (Exynos 26
 
 All measurements and recommended settings: [RESULTS.md](RESULTS.md). Scripts: [scripts/](scripts/).
 
-Author: Alen Požun ([@termuxSolutions](https://x.com/termuxSolutions)), built with AI assistance · MIT License
+Author: Alen Požun ([@termuxSolutions](https://x.com/termuxSolutions)), built with AI assistance

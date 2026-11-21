@@ -9,7 +9,7 @@
 M=${M:-~/models/qwen2.5-coder-0.5b-instruct-q8_0.gguf}
 eval M=$M
 PORT=${PORT:-8098}
-OUT=~/bench/fa-sweep/tool-pick-$(basename "$M" .gguf)${SHARP:+-sharp}.txt
+OUT=~/bench/fa-sweep/tool-pick-$(basename "$M" .gguf)${SHARP:+-sharp}${FETCH_FIRST:+-fetchfirst}${ONLY_URL:+-url}.txt
 mkdir -p ~/bench/fa-sweep
 if [ -z "$NO_SERVER" ]; then
   pkill -f "llama-server.*--port $PORT" 2>/dev/null
@@ -92,6 +92,8 @@ if os.environ.get("SHARP"):
     for tool in NEEDED + DISTRACTORS:
         f = tool["function"]
         if f["name"] in SHARP_DESC: f["description"] = SHARP_DESC[f["name"]]
+if os.environ.get("FETCH_FIRST"):
+    NEEDED.sort(key=lambda t: t["function"]["name"] != "fetch_url")  # fetch_url moved to slot 1
 has = lambda a, k, sub: sub.lower() in str(a.get(k, "")).lower()
 CASES = [
  ("Show me what's in notes/todo.txt", "read_file", lambda a: has(a, "path", "notes/todo.txt")),
@@ -115,6 +117,20 @@ CASES = [
  ("Get the text of https://example.com/docs", "fetch_url", lambda a: has(a, "url", "example.com/docs")),
  ("Read this page for me: https://news.ycombinator.com", "fetch_url", lambda a: has(a, "url", "news.ycombinator.com")),
 ]
+URL_CASES = [
+ ("Get the text of https://example.com/docs", "fetch_url", lambda a: has(a, "url", "example.com/docs")),
+ ("Read this page for me: https://news.ycombinator.com", "fetch_url", lambda a: has(a, "url", "news.ycombinator.com")),
+ ("Open https://github.com/ggml-org/llama.cpp and tell me what it says.", "fetch_url", lambda a: has(a, "url", "github.com/ggml-org/llama.cpp")),
+ ("What's on https://termux.dev/en/ right now?", "fetch_url", lambda a: has(a, "url", "termux.dev")),
+ ("Summarize this article: https://www.bbc.com/news/technology", "fetch_url", lambda a: has(a, "url", "bbc.com/news/technology")),
+ ("Fetch https://raw.githubusercontent.com/ggml-org/llama.cpp/master/README.md", "fetch_url", lambda a: has(a, "url", "raw.githubusercontent.com")),
+ ("Can you load https://docs.python.org/3/ for me?", "fetch_url", lambda a: has(a, "url", "docs.python.org")),
+ ("Pull the content of https://huggingface.co/Qwen", "fetch_url", lambda a: has(a, "url", "huggingface.co/Qwen")),
+ ("Check what this link says: https://en.wikipedia.org/wiki/Android_(operating_system)", "fetch_url", lambda a: has(a, "url", "wikipedia.org")),
+ ("Give me the text from https://example.org", "fetch_url", lambda a: has(a, "url", "example.org")),
+]
+if os.environ.get("ONLY_URL"):
+    CASES = URL_CASES
 SYSTEM = "You are an assistant with tools. When a request needs a tool, call exactly one tool with the correct arguments."
 def ask(prompt, tools):
     body = {"messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
@@ -124,7 +140,7 @@ def ask(prompt, tools):
     t0 = time.time(); d = json.loads(urllib.request.urlopen(req, timeout=300).read())
     return d, time.time() - t0
 
-print(f"Tool-call accuracy - {model.split('/')[-1]} - llama-server --jinja, temperature 0, FA off - descriptions: {'sharpened' if os.environ.get('SHARP') else 'original'}")
+print(f"Tool-call accuracy - {model.split('/')[-1]} - llama-server --jinja, temperature 0, FA off - descriptions: {'sharpened' if os.environ.get('SHARP') else 'original'}, fetch_url {'in slot 1' if os.environ.get('FETCH_FIRST') else 'in slot 10'}, prompts: {'10 URL prompts' if os.environ.get('ONLY_URL') else 'all 20'}")
 summary = []
 for label, tools in (("10 tools", NEEDED), ("40 tools", NEEDED + DISTRACTORS)):
     called = right = args_ok = native = 0; secs = []; misses = []

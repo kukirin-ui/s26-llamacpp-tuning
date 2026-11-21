@@ -136,3 +136,19 @@ Notes:
 - Typical misses: fetch_url → read_file / web_search (0/2 in every run, even with "never use for URLs" in read_file's description), git_log → git_commit, and with 40 tools picking distractors (take_note, create_calendar_event, http_request, get_weather).
 - Sharpening the descriptions moved 10 tools from 14 to 15/20 and left 40 tools at 12/20: at 0.5B the model size is the limit, not the wording.
 - Run: `M=~/models/qwen2.5-0.5b-instruct-q8_0.gguf bash scripts/tool_pick_test.sh` (add `SHARP=1` for sharpened descriptions).
+
+## 12. fetch_url position and a bigger URL sample (ONLY_URL=1, FETCH_FIRST=1)
+Same test, 10 different URL prompts that all need fetch_url (instead of 2). Qwen2.5-0.5B-Instruct Q8_0, original descriptions, 1 run.
+| fetch_url position | 10 tools | 40 tools |
+|---|---|---|
+| slot 10 (original order) | 1/10 | 1/10 |
+| slot 1 (FETCH_FIRST=1) | 4/10 | 1/10 |
+Position helps with a short tool list; with 40 tools it does not. Misses with 40 tools: http_request (4×), read_file, web_search, get_weather("termux.dev"), csv_summary, git_push.
+
+## 13. Model comparison, tool-call accuracy (all 20 prompts, original descriptions)
+| model | quant | 10 tools: native calls / right tool + args | 40 tools: native calls / right tool + args | median s/request (10 / 40) |
+|---|---|---|---|---|
+| Qwen2.5-0.5B-Instruct | Q8_0 | 20/20 · 14/20 (70%) | 20/20 · 12/20 (60%) | 0.6 / 0.7 |
+| LFM2.5-1.2B-Instruct | Q4_K_M | 18/20 · 16/20 (80%) | 15/20 · 12/20 (60%) | 1.0 / 1.3 |
+| LFM3-1.7B | Q4_K_M | 19/20 · 19/20 (95%) | 19/20 · 19/20 (95%) | 3.0 / 4.0 |
+Bigger and newer helps: the 1.2B still drops to 60% at 40 tools, the 1.7B holds 95% with 40 tools loaded, at about 4–6× the latency per call on the phone. Different quantizations (Q8_0 vs Q4_K_M), 1 run each.

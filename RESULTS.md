@@ -84,8 +84,8 @@ Conclusion: FA-on prefill drops ~9–10× at 4K on both models, independent of u
 - Long chats / pasted documents: GPU, stock build, -ngl 40 -fa 0, cores 6–8, -t 3 → ~800 tok/s prompt at 4K, ~60 tok/s generation.
 - KV cache f16.
 
-## 8. Tool-definition overhead (MCP-style prompts), cold prefill
-Same prompt sizes as an RTX 3090 / Qwen 27B Q4_K_M measurement posted by @MythomancerX (0/10/20/40 tools = 21/1,081/1,960/3,718 tokens). Cores 6–8, -t 3, -ngl 40, prompt cache off. Seconds of prefill = tokens / pp tok/s.
+## 8. Tool-definition overhead, synthetic prompts (same token counts), cold prefill
+These are synthetic prompts (llama-bench), not real tool schemas: only the prompt sizes match an RTX 3090 / Qwen 27B Q4_K_M measurement posted by @MythomancerX (0/10/20/40 tools = 21/1,081/1,960/3,718 tokens). Cores 6–8, -t 3, -ngl 40, prompt cache off. Seconds of prefill = tokens / pp tok/s.
 | tools | tokens | 3090 27B (his) | Qwen2.5-0.5B FA off | SmolLM2 FA off | Qwen2.5-0.5B FA on | SmolLM2 FA on |
 |---|---|---|---|---|---|---|
 | 0 | 21 | 0.17 s | 0.04 s (546 tok/s) | 0.03 s (654) | 0.03 s (608) | 0.03 s (778) |
@@ -93,3 +93,28 @@ Same prompt sizes as an RTX 3090 / Qwen 27B Q4_K_M measurement posted by @Mythom
 | 20 | 1,960 | 1.7 s | 1.10 s (1,788) | 1.19 s (1,643) | 4.35 s (450) | 5.60 s (350) |
 | 40 | 3,718 | 3.0 s | 2.48 s (1,499) | 2.87 s (1,297) | 14.38 s (259) | 19.98 s (186) |
 SmolLM2-360M (32 layers × 15 heads, 5 KV heads) does ~1.4× more attention work than Qwen2.5-0.5B (24 × 14, 2 KV heads); the FA-on gap (259 vs 186 tok/s) matches that ratio.
+
+## 9. Real tool schemas through the chat template (real_tools_test.sh)
+40 real JSON tool schemas (file, git, web; 10 distinct, repeated to 40), rendered by the model's own chat template in llama-server (--jinja), prompt cache off, FA off, cores 6–8, -t 3, -ngl 40, 2 runs each. Token counts come from the server response. Schemas are my own, not identical to the 3090 test, so this is not 1:1.
+
+Qwen2.5-Coder-0.5B Q8_0:
+| tools | prompt tokens | prefill ms (run 1 / run 2) | tok/s (run 1 / run 2) |
+|---|---|---|---|
+| 0 | 37 | 298 / 68 | 124 / 547 |
+| 10 | 842 | 470 / 476 | 1,792 / 1,770 |
+| 20 | 1,590 | 1,252 / 911 | 1,270 / 1,746 |
+| 40 | 3,086 | 2,273 / 2,026 | 1,358 / 1,523 |
+About 76 tokens per tool on this template (the 3090 test reported ~87 per tool on its template and schemas). The first 0-tool run includes warm-up.
+
+## 10. Quantized KV cache with flash attention off (SmolLM2-360M, 4K depth, pp256 / tg64)
+| build | K / V | pp256 | tg64 |
+|---|---|---|---|
+| stock | f16 / f16 | 772.6 | 60.0 |
+| stock | q8_0 / f16 | 137.2 | 13.2 |
+| stock | q8_0 / q8_0 | refused | refused |
+| stock | q4_0 / q4_0 | refused | refused |
+| custom | f16 / f16 | 694.1 | 60.5 |
+| custom | q8_0 / f16 | 246.9 | 10.5 |
+| custom | q8_0 / q8_0 | refused | refused |
+| custom | q4_0 / q4_0 | refused | refused |
+Refusal message: "quantized V cache requires flash_attn to be enabled". K-only quantization loads without FA but is 3–6× slower on this device. On Xclipse the practical choice is FA (slow prefill at depth) or f16 KV (more memory).

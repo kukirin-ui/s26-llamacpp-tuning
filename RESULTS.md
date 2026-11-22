@@ -152,3 +152,22 @@ Position helps with a short tool list; with 40 tools it does not. Misses with 40
 | LFM2.5-1.2B-Instruct | Q4_K_M | 18/20 · 16/20 (80%) | 15/20 · 12/20 (60%) | 1.0 / 1.3 |
 | LFM3-1.7B | Q4_K_M | 19/20 · 19/20 (95%) | 19/20 · 19/20 (95%) | 3.0 / 4.0 |
 Bigger and newer helps: the 1.2B still drops to 60% at 40 tools, the 1.7B holds 95% with 40 tools loaded, at about 4–6× the latency per call on the phone. Different quantizations (Q8_0 vs Q4_K_M), 1 run each.
+
+## 14. Where the time goes in a tool call: prefill vs decode, prompt cache on/off
+Same 20 prompts as section 11, 10 vs 40 tools loaded. llama-server --jinja, temperature 0, FA off, cores 6–8, -t 3, -ngl 40, 1 run. Timings are medians of the per-request `timings` from llama-server. With the prompt cache on, "prompt tok" counts only the tokens the server actually had to process (the cached tool list is reused), not the full prompt. Prefill share = prompt ms / (prompt ms + output ms), summed over all requests.
+
+| model | cache | tools | right tool + args | median s/request | prompt tok / ms | output tok / ms | decode tok/s | prefill share |
+|---|---|---|---|---|---|---|---|---|
+| LFM3-1.7B Q4_K_M | off | 10 | 19/20 (95%) | 3.8 | 677 / 1,630 | 68 / 2,149 | 35 | 41% |
+| LFM3-1.7B Q4_K_M | off | 40 | 19/20 (95%) | 10.7 | 2,322 / 7,377 | 70 / 2,867 | 25 | 69% |
+| LFM3-1.7B Q4_K_M | on | 10 | 19/20 (95%) | 4.3 | 514 / 1,766 | 66 / 2,409 | 28 | 38% |
+| LFM3-1.7B Q4_K_M | on | 40 | 19/20 (95%) | 5.3 | 514 / 2,104 | 70 / 2,793 | 25 | 42% |
+| LFM2.5-1.2B-Instruct Q4_K_M | on | 10 | 16/20 (80%) | 1.7 | 515 / 1,162 | 19 / 441 | 47 | 70% |
+| LFM2.5-1.2B-Instruct Q4_K_M | on | 40 | 12/20 (60%) | 2.0 | 515 / 1,462 | 22 / 508 | 42 | 73% |
+
+Findings:
+- Cold (cache off), the 40-tool list dominates: 69% of the time is prefill and a call takes 10.7 s. With the prompt cache on (normal agent use), the same call takes 5.3 s and prefill drops to ~40%.
+- With the cache on, the 1.7B spends most of its time writing: ~70 output tokens per call vs ~20 for the 1.2B. Trimming the tool list therefore helps the 1.7B only a little (4.3 s vs 5.3 s).
+- The 1.2B is faster with a short list (1.7 s vs 4.3 s) but less accurate (80% vs 95%, and 60% vs 95% with 40 tools).
+- Not measured yet: the LFM2.5-1.2B with cache off, and what the ~70 output tokens of the 1.7B consist of (reasoning vs arguments vs call format). Follow-up test planned.
+- Run: `M=~/models/LFM3-1.7B-Q4_K_M.gguf CACHE=1 bash scripts/tool_pick_test.sh` (CACHE=0 for cold prefill).

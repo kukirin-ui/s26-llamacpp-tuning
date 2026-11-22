@@ -9,7 +9,7 @@
 M=${M:-~/models/qwen2.5-coder-0.5b-instruct-q8_0.gguf}
 eval M=$M
 PORT=${PORT:-8098}
-OUT=~/bench/fa-sweep/tool-pick-$(basename "$M" .gguf)${SHARP:+-sharp}${FETCH_FIRST:+-fetchfirst}${ONLY_URL:+-url}.txt
+OUT=~/bench/fa-sweep/tool-pick-$(basename "$M" .gguf)${SHARP:+-sharp}${FETCH_FIRST:+-fetchfirst}${ONLY_URL:+-url}-cache${CACHE:-1}.txt
 mkdir -p ~/bench/fa-sweep
 if [ -z "$NO_SERVER" ]; then
   pkill -f "llama-server.*--port $PORT" 2>/dev/null
@@ -134,16 +134,17 @@ if os.environ.get("ONLY_URL"):
 SYSTEM = "You are an assistant with tools. When a request needs a tool, call exactly one tool with the correct arguments."
 def ask(prompt, tools):
     body = {"messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-            "tools": tools, "tool_choice": "auto", "temperature": 0, "max_tokens": 256}
+            "tools": tools, "tool_choice": "auto", "temperature": 0, "max_tokens": 256,
+            "cache_prompt": os.environ.get("CACHE", "1") != "0"}
     req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     t0 = time.time(); d = json.loads(urllib.request.urlopen(req, timeout=300).read())
     return d, time.time() - t0
 
-print(f"Tool-call accuracy - {model.split('/')[-1]} - llama-server --jinja, temperature 0, FA off - descriptions: {'sharpened' if os.environ.get('SHARP') else 'original'}, fetch_url {'in slot 1' if os.environ.get('FETCH_FIRST') else 'in slot 10'}, prompts: {'10 URL prompts' if os.environ.get('ONLY_URL') else 'all 20'}")
+print(f"Tool-call accuracy - {model.split('/')[-1]} - llama-server --jinja, temperature 0, FA off - descriptions: {'sharpened' if os.environ.get('SHARP') else 'original'}, fetch_url {'in slot 1' if os.environ.get('FETCH_FIRST') else 'in slot 10'}, prompts: {'10 URL prompts' if os.environ.get('ONLY_URL') else 'all 20'}, prompt cache {'off' if os.environ.get('CACHE') == '0' else 'on'}")
 summary = []
 for label, tools in (("10 tools", NEEDED), ("40 tools", NEEDED + DISTRACTORS)):
-    called = right = args_ok = native = 0; secs = []; misses = []
+    called = right = args_ok = native = 0; secs = []; misses = []; tim = []
     print(f"\n== {label} ==")
     for prompt, want, check in CASES:
         try:
@@ -151,6 +152,8 @@ for label, tools in (("10 tools", NEEDED), ("40 tools", NEEDED + DISTRACTORS)):
         except Exception as e:
             print(f"ERR  {prompt[:50]} | {e}"); misses.append(f"{want}: request error"); continue
         secs.append(dt)
+        tm = d.get("timings") or {}
+        tim.append((tm.get("prompt_n", 0), tm.get("prompt_ms", 0.0), tm.get("predicted_n", 0), tm.get("predicted_ms", 0.0)))
         msg = d["choices"][0]["message"]; tcs = msg.get("tool_calls") or []
         if tcs:
             native += 1; kind = "native"
@@ -173,6 +176,11 @@ for label, tools in (("10 tools", NEEDED), ("40 tools", NEEDED + DISTRACTORS)):
         if not ok: misses.append(f"{want}: bad args {json.dumps(args)[:60]}")
     n = len(CASES)
     line = f"{label}: native tool_calls {native}/{n}, any call (incl. JSON in text) {called}/{n}, right tool {right}/{n}, right tool + args {args_ok}/{n} ({100*args_ok/n:.0f}%), median {sorted(secs)[len(secs)//2] if secs else 0:.1f} s/request"
+    if tim:
+        md = lambda i: sorted(x[i] for x in tim)[len(tim) // 2]
+        dec_rate = sum(x[2] for x in tim) / max(1e-9, sum(x[3] for x in tim) / 1000)
+        line += (f"\n      timing (median): prompt {md(0)} tok in {md(1):.0f} ms | output {md(2)} tok in {md(3):.0f} ms"
+                 f" | decode {dec_rate:.0f} tok/s | prefill share {100*sum(x[1] for x in tim)/max(1e-9, sum(x[1]+x[3] for x in tim)):.0f}%")
     summary.append(line)
     print(line)
     for m in misses: print("   miss:", m)
